@@ -181,16 +181,29 @@ class AdminWebhooksController extends ModuleAdminController
                 'desc' => $this->module->l('Add new', 'AdminWebhooks'),
                 'icon' => 'process-icon-new',
             ];
+
+            $this->page_header_toolbar_btn['export_json'] = [
+                'href' => self::$currentIndex . '&action=exportJson&token=' . $this->token,
+                'desc' => $this->module->l('Export JSON', 'AdminWebhooks'),
+                'icon' => 'process-icon-download',
+            ];
+
+            $this->page_header_toolbar_btn['import_json'] = [
+                'href' => self::$currentIndex . '&action=importJsonForm&token=' . $this->token,
+                'desc' => $this->module->l('Import JSON', 'AdminWebhooks'),
+                'icon' => 'process-icon-upload',
+            ];
+
+            $this->page_header_toolbar_btn['delete_all'] = [
+                'href' => self::$currentIndex . '&action=deleteAll&token=' . $this->token,
+                'desc' => $this->module->l('Delete All', 'AdminWebhooks'),
+                'icon' => 'process-icon-delete',
+            ];
         }
     }
 
     /**
      * Display test link for a webhook
-     *
-     * @param string $token Security token
-     * @param int $id Webhook ID
-     * @param string|null $name Webhook name
-     * @return string HTML content for the test link
      */
     public function displayTestLink($token, $id, $name = null)
     {
@@ -210,8 +223,6 @@ class AdminWebhooksController extends ModuleAdminController
 
     /**
      * Process webhook test
-     *
-     * @return bool True if test succeeded, false otherwise
      */
     public function processTest()
     {
@@ -226,25 +237,82 @@ class AdminWebhooksController extends ModuleAdminController
 
             if ($code >= 200 && $code < 300) {
                 $this->confirmations[] = $this->module->l('Webhook connection tested', 'AdminWebhooks') . ': ' . $message;
-
                 return true;
             } else {
                 $this->errors[] = $this->module->l('Is not possible to connect to this URL', 'AdminWebhooks') . ': ' . $message;
-
                 return false;
             }
         }
 
         $this->errors[] = $this->module->l('Is not possible to test the connection to this URL', 'AdminWebhooks');
-
         return false;
     }
 
     /**
+     * Extra: Export, Import and Delete All
+     */
+    public function processExportJson()
+    {
+        $webhooks = Db::getInstance()->executeS('SELECT * FROM '._DB_PREFIX_.'webhook');
+        header('Content-Type: application/json');
+        header('Content-Disposition: attachment; filename="webhooks.json"');
+        echo json_encode($webhooks, JSON_PRETTY_PRINT);
+        exit;
+    }
+
+    public function processDeleteAll()
+    {
+        Db::getInstance()->execute('TRUNCATE TABLE '._DB_PREFIX_.'webhook');
+        $this->confirmations[] = $this->module->l('All webhooks deleted.', 'AdminWebhooks');
+    }
+
+    public function processImportJson()
+    {
+        if (!isset($_FILES['import_json']) || $_FILES['import_json']['error'] !== UPLOAD_ERR_OK) {
+            $this->errors[] = $this->module->l('No file uploaded or invalid file.', 'AdminWebhooks');
+            return false;
+        }
+
+        $data = file_get_contents($_FILES['import_json']['tmp_name']);
+        $webhooks = json_decode($data, true);
+
+        if (!is_array($webhooks)) {
+            $this->errors[] = $this->module->l('Invalid JSON format.', 'AdminWebhooks');
+            return false;
+        }
+
+        foreach ($webhooks as $w) {
+            $webhook = new Webhook();
+            $webhook->action = pSQL($w['action']);
+            $webhook->entity = pSQL($w['entity']);
+            $webhook->url = pSQL($w['url']);
+            $webhook->description = isset($w['description']) ? pSQL($w['description']) : '';
+            $webhook->active = (int)$w['active'];
+            $webhook->add();
+        }
+
+        $this->confirmations[] = $this->module->l('Webhooks imported successfully.', 'AdminWebhooks');
+        return true;
+    }
+
+    public function processImportJsonForm()
+    {
+        $this->content .= '
+        <form method="post" enctype="multipart/form-data" action="'.self::$currentIndex.'&token='.$this->token.'&action=importJson">
+            <div class="panel">
+                <h3>'.$this->module->l('Import Webhooks JSON', 'AdminWebhooks').'</h3>
+                <div class="form-group">
+                    <input type="file" name="import_json" accept=".json" required>
+                </div>
+                <button type="submit" class="btn btn-primary">
+                    '.$this->module->l('Upload and Import', 'AdminWebhooks').'
+                </button>
+            </div>
+        </form>';
+    }
+
+    /**
      * Before delete hook
-     *
-     * @param object $object Webhook object
-     * @return bool True
      */
     protected function beforeDelete($object)
     {
@@ -254,9 +322,6 @@ class AdminWebhooksController extends ModuleAdminController
 
     /**
      * After add hook
-     *
-     * @param object $object Webhook object
-     * @return bool True
      */
     protected function afterAdd($object)
     {
@@ -266,9 +331,6 @@ class AdminWebhooksController extends ModuleAdminController
 
     /**
      * After update hook
-     *
-     * @param object $object Webhook object
-     * @return bool True
      */
     protected function afterUpdate($object)
     {
